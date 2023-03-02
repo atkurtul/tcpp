@@ -286,6 +286,7 @@ namespace tcpp
 		public:
 			using TOnErrorCallback = std::function<void(const TErrorInfo&)>;
 			using TOnIncludeCallback = std::function<IInputStream*(const std::string&, bool)>;
+			using TOnPopIncludeCallback = std::function<void()>;
 			using TSymTable = std::vector<TMacroDesc>;
 			using TContextStack = std::list<std::string>;
 			using TDirectiveHandler = std::function<std::string(Preprocessor&, Lexer&, const std::string&)>;
@@ -304,7 +305,7 @@ namespace tcpp
 		public:
 			Preprocessor() TCPP_NOEXCEPT = delete;
 			Preprocessor(const Preprocessor&) TCPP_NOEXCEPT = delete;
-			Preprocessor(Lexer& lexer, const TOnErrorCallback& onErrorCallback = {}, const TOnIncludeCallback& onIncludeCallback = {}) TCPP_NOEXCEPT;
+			Preprocessor(Lexer& lexer, const TOnErrorCallback& onErrorCallback = {}, const TOnIncludeCallback& onIncludeCallback = {}, const TOnPopIncludeCallback& onPopIncludeCallback = {}) TCPP_NOEXCEPT;
 			~Preprocessor() TCPP_NOEXCEPT = default;
 
 			bool AddCustomDirectiveHandler(const std::string& directive, const TDirectiveHandler& handler) TCPP_NOEXCEPT;
@@ -337,6 +338,7 @@ namespace tcpp
 			Lexer* mpLexer;
 			TOnErrorCallback mOnErrorCallback;
 			TOnIncludeCallback mOnIncludeCallback;
+			TOnPopIncludeCallback mOnPopIncludeCallback;
 			TSymTable mSymTable;
 			TContextStack mContextStack;
 			TIfStack mConditionalBlocksStack;
@@ -962,9 +964,8 @@ namespace tcpp
 		return mStreamsContext.empty() ? nullptr : mStreamsContext.top();
 	}
 
-
-	Preprocessor::Preprocessor(Lexer& lexer, const TOnErrorCallback& onErrorCallback, const TOnIncludeCallback& onIncludeCallback) TCPP_NOEXCEPT:
-		mpLexer(&lexer), mOnErrorCallback(onErrorCallback), mOnIncludeCallback(onIncludeCallback)
+	Preprocessor::Preprocessor(Lexer& lexer, const TOnErrorCallback& onErrorCallback, const TOnIncludeCallback& onIncludeCallback, const TOnPopIncludeCallback& onPopIncludeCallback) TCPP_NOEXCEPT:
+		mpLexer(&lexer), mOnErrorCallback(onErrorCallback), mOnIncludeCallback(onIncludeCallback), mOnPopIncludeCallback(onPopIncludeCallback)
 	{
 		mSymTable.push_back({ "__LINE__" });
 	}
@@ -1106,6 +1107,8 @@ namespace tcpp
 
 			if (!mpLexer->HasNextToken())
 			{
+				if (mOnPopIncludeCallback)
+					mOnPopIncludeCallback();
 				mpLexer->PopStream();
 			}
 		}
