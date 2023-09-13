@@ -148,6 +148,7 @@ namespace tcpp
 		CUSTOM_DIRECTIVE,
 		COMMENTARY,
 		UNKNOWN,
+		ELLIPSIS,
 	};
 
 
@@ -234,10 +235,9 @@ namespace tcpp
 	typedef struct TMacroDesc
 	{
 		std::string mName;
-
 		std::vector<std::string> mArgsNames;
-
 		std::vector<TToken> mValue;
+		bool mVariadic = false;
 	} TMacroDesc, *TMacroDescPtr;
 
 
@@ -598,6 +598,18 @@ namespace tcpp
 		while (!inputLine.empty())
 		{
 			ch = inputLine.front();
+
+			if (ch == '.' && PeekNextChar(inputLine, 1) == '.' && PeekNextChar(inputLine, 2) == '.')
+			{
+				// flush current blob
+				if (!currStr.empty())
+				{
+					return { E_TOKEN_TYPE::BLOB, currStr, mCurrLineIndex, mCurrPos };
+				}
+
+				mCurrPos = std::get<size_t>(EatNextChar(inputLine, mCurrPos, 3));
+				return { E_TOKEN_TYPE::ELLIPSIS, "...", mCurrLineIndex, mCurrPos };
+			}
 
 			if (ch == '/')
 			{
@@ -968,6 +980,7 @@ namespace tcpp
 		mpLexer(&lexer), mOnErrorCallback(onErrorCallback), mOnIncludeCallback(onIncludeCallback), mOnPopIncludeCallback(onPopIncludeCallback)
 	{
 		mSymTable.push_back({ "__LINE__" });
+		mSymTable.push_back({ "__VA_ARGS__" });
 	}
 
 	bool Preprocessor::AddCustomDirectiveHandler(const std::string& directive, const TDirectiveHandler& handler) TCPP_NOEXCEPT
@@ -1124,7 +1137,7 @@ namespace tcpp
 	void Preprocessor::_createMacroDefinition() TCPP_NOEXCEPT
 	{
 		TMacroDesc macroDesc;
-
+		
 		auto currToken = mpLexer->GetNextToken();
 		_expect(E_TOKEN_TYPE::SPACE, currToken.mType);
 
@@ -1173,10 +1186,25 @@ namespace tcpp
 					{
 						while ((currToken = mpLexer->GetNextToken()).mType == E_TOKEN_TYPE::SPACE); // \note skip space tokens
 
-						_expect(E_TOKEN_TYPE::IDENTIFIER, currToken.mType);
-						macroDesc.mArgsNames.push_back(currToken.mRawView);
+						switch (currToken.mType)
+						{
+						case E_TOKEN_TYPE::IDENTIFIER:
+							macroDesc.mArgsNames.push_back(currToken.mRawView);
+							break;
+						case E_TOKEN_TYPE::ELLIPSIS:
+							macroDesc.mArgsNames.push_back("__VA_ARGS__");
+							macroDesc.mVariadic = true;
+							break;
+						default:
+							mOnErrorCallback({ E_ERROR_TYPE::UNEXPECTED_TOKEN, mpLexer->GetCurrLineIndex() });
+						}
 
 						while ((currToken = mpLexer->GetNextToken()).mType == E_TOKEN_TYPE::SPACE);
+						if (macroDesc.mVariadic)
+						{
+							_expect(E_TOKEN_TYPE::CLOSE_BRACKET, currToken.mType);
+							break;
+						}
 						if (currToken.mType == E_TOKEN_TYPE::CLOSE_BRACKET)
 						{
 							break;
@@ -1235,7 +1263,8 @@ namespace tcpp
 		{
 			static const std::unordered_map<std::string, std::function<TToken()>> systemMacrosTable
 			{
-				{ "__LINE__", [&idToken]() { return TToken { E_TOKEN_TYPE::BLOB, std::to_string(idToken.mLineId) }; } }
+				{ "__LINE__", [&idToken]() { return TToken { E_TOKEN_TYPE::BLOB, std::to_string(idToken.mLineId) }; } },
+				{ "__VA_ARGS__", [&idToken]() { return TToken { E_TOKEN_TYPE::BLOB, idToken.mRawView }; } }
 			};
 
 			auto iter = systemMacrosTable.find(macroDesc.mName);
@@ -1299,7 +1328,7 @@ namespace tcpp
 			}
 		}
 
-		if (processingTokens.size() != macroDesc.mArgsNames.size())
+		if (processingTokens.size() != macroDesc.mArgsNames.size() && !macroDesc.mVariadic)
 		{
 			mOnErrorCallback({ E_ERROR_TYPE::INCONSISTENT_MACRO_ARITY, mpLexer->GetCurrLineIndex() });
 		}
@@ -1312,14 +1341,26 @@ namespace tcpp
 
 		for (size_t currArgIndex = 0; currArgIndex < processingTokens.size(); ++currArgIndex)
 		{
-			const std::string& currArgName = argsList[currArgIndex];
-			auto&& currArgValueTokens = processingTokens[currArgIndex];
+			const bool variadics = macroDesc.mVariadic && currArgIndex == macroDesc.mArgsNames.size() - 1;
+			const std::string& currArgName = variadics ? argsList.back() : argsList[currArgIndex];
 
 			replacementValue.clear();
-
-			for (auto&& currArgToken : currArgValueTokens)
+			
+			for (auto&& currArgToken : processingTokens[currArgIndex])
 			{
 				replacementValue.append(currArgToken.mRawView);
+			}
+
+			if (variadics)
+			{
+				for (size_t i = currArgIndex + 1; i < processingTokens.size(); ++i)
+				{
+					replacementValue.append(",");
+					for (auto&& currArgToken : processingTokens[i])
+					{
+						replacementValue.append(currArgToken.mRawView);
+					}
+				}
 			}
 
 			for (auto& currToken : replacementList)
@@ -1330,6 +1371,11 @@ namespace tcpp
 				}
 
 				currToken.mRawView = replacementValue;
+			}
+
+			if (variadics)
+			{
+				break;
 			}
 		}
 
