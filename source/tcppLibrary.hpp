@@ -1328,10 +1328,12 @@ namespace tcpp
 			}
 		}
 
-		if (processingTokens.size() != macroDesc.mArgsNames.size() && !macroDesc.mVariadic)
-		{
-			mOnErrorCallback({ E_ERROR_TYPE::INCONSISTENT_MACRO_ARITY, mpLexer->GetCurrLineIndex() });
-		}
+        if(macroDesc.mVariadic ? 
+            (processingTokens.size() + 1 < macroDesc.mArgsNames.size()) :
+            (processingTokens.size()    != macroDesc.mArgsNames.size()))
+        {
+            mOnErrorCallback({ E_ERROR_TYPE::INCONSISTENT_MACRO_ARITY, mpLexer->GetCurrLineIndex() });
+        }
 
 		// \note execute macro's expansion
 		std::vector<TToken> replacementList{ macroDesc.mValue.cbegin(), macroDesc.mValue.cend() };

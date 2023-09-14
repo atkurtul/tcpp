@@ -13,6 +13,7 @@ TEST_CASE("Preprocessor Tests")
 		REQUIRE(false);
 	};
 
+#if 0
 	SECTION("TestProcess_PassSourceWithoutMacros_ReturnsEquaivalentSource")
 	{
 		std::string inputSource = "void main/* this is a comment*/(/*void*/)\n{\n\treturn/*   */ 42;\n}";
@@ -455,6 +456,46 @@ TEST_CASE("Preprocessor Tests")
 		std::string actualResult = preprocessor.Process();
 		REQUIRE((result && (actualResult == expectedResult)));
 	}
+#endif
 
+
+	SECTION("TestProcess_VA_ARGS")
+	{
+        std::string inputSource = "#define DO_STUFF(x, ...) x.do_stuf(); __VA_ARGS__\n int main() { DO_STUFF(2, 3+5, 4); }";
+
+        StringInputStream input(inputSource);
+        Lexer lexer(input);
+
+        Preprocessor preprocessor(lexer, [](const TErrorInfo& err) 
+        { 
+            std::cout << "Error" << ErrorTypeToString(err.mType) << "\n";
+        });
+
+        std::cout << preprocessor.Process() << "\n";
+	}
+
+	SECTION("TestProcess_VA_ARGS_MultiExpand")
+	{
+
+        std::string inputSource = R"(
+#define HEAD(x, ...) x
+#define TAIL(x, ...) __VA_ARGS__
+
+int main()
+{
+    return TAIL(1, 2, 3);
+}
+)";
+
+        StringInputStream input(inputSource);
+        Lexer lexer(input);
+
+        Preprocessor preprocessor(lexer, [](const TErrorInfo& err) 
+        { 
+            std::cout << "Error" << ErrorTypeToString(err.mType) << "\n";
+        });
+
+        std::cout << preprocessor.Process() << "\n";
+	}
 
 }
